@@ -38,6 +38,7 @@ func main() {
 	http.HandleFunc("/dequeue", dequeueHandler)
 	http.HandleFunc("/ack", ackHandler)
 	http.HandleFunc("/dlq", dlqHandler)
+	http.HandleFunc("/metrics", metricsHandler)
 
 	port := ":8080"
 	fmt.Println("broker starting on", port)
@@ -101,4 +102,8 @@ func ackHandler(w http.ResponseWriter, r *http.Request) {
 
 func dlqHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(q.DLQ())
+}
+
+func metricsHandler(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(q.Stats())
 }

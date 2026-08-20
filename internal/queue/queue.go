@@ -292,3 +292,26 @@ func (q *Queue) DLQ() []*job.Job {
 	defer q.mu.Unlock()
 	return q.dlq
 }
+
+// Stats is a snapshot of what the queue is doing right now, for the
+// /metrics endpoint.
+type Stats struct {
+	HighDepth   int `json:"high_depth"`
+	NormalDepth int `json:"normal_depth"`
+	LowDepth    int `json:"low_depth"`
+	InFlight    int `json:"in_flight"`
+	DLQDepth    int `json:"dlq_depth"`
+}
+
+func (q *Queue) Stats() Stats {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	return Stats{
+		HighDepth:   len(q.highJobs),
+		NormalDepth: len(q.normalJobs),
+		LowDepth:    len(q.lowJobs),
+		InFlight:    len(q.inFlight),
+		DLQDepth:    len(q.dlq),
+	}
+}
