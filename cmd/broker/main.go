@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,25 +15,48 @@ import (
 var q *queue.Queue
 
 func main() {
+	role := flag.String("role", "primary", "primary or standby")
+	addr := flag.String("addr", ":8080", "address for this broker to listen on")
+	walPath := flag.String("wal", "data/wal.log", "path to the write-ahead log file")
+	primaryURL := flag.String("primary", "http://localhost:8080", "primary broker's address (only used when -role=standby)")
+	flag.Parse()
+
 	err := os.MkdirAll("data", 0755)
 	if err != nil {
 		log.Fatal("failed to create data dir:", err)
 	}
 
-	q, err = queue.NewWithWAL("data/wal.log")
+	if *role == "standby" {
+		runStandby(*addr, *walPath, *primaryURL)
+		return
+	}
+
+	q, err = queue.NewWithWAL(*walPath)
 	if err != nil {
 		log.Fatal("failed to start queue:", err)
 	}
 
-	// background goroutine that checks for jobs whose worker never
-	// acked in time, so they can get retried or dead-lettered
+	startTimeoutChecker()
+	serve(*addr)
+}
+
+// startTimeoutChecker kicks off the background goroutine that checks
+// for jobs whose worker never acked in time, so they can get retried
+// or dead-lettered. Needs to run whether we started as primary or got
+// promoted from standby.
+func startTimeoutChecker() {
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		for range ticker.C {
 			q.CheckTimeouts()
 		}
 	}()
+}
 
+// serve registers all the HTTP handlers and blocks forever serving
+// requests. Called by main() directly for a primary, or by
+// runStandby() once it's promoted itself.
+func serve(addr string) {
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/enqueue", enqueueHandler)
 	http.HandleFunc("/dequeue", dequeueHandler)
@@ -40,9 +64,8 @@ func main() {
 	http.HandleFunc("/dlq", dlqHandler)
 	http.HandleFunc("/metrics", metricsHandler)
 
-	port := ":8080"
-	fmt.Println("broker starting on", port)
-	err = http.ListenAndServe(port, nil)
+	fmt.Println("broker listening on", addr)
+	err := http.ListenAndServe(addr, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
