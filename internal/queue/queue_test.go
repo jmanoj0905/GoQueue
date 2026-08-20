@@ -16,12 +16,12 @@ func TestEnqueueConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			q.Enqueue("payload")
+			q.Enqueue("payload", "normal")
 		}()
 	}
 	wg.Wait()
 
-	if len(q.jobs) != 50 {
-		t.Fatalf("expected 50 jobs, got %d", len(q.jobs))
+	if len(q.normalJobs) != 50 {
+		t.Fatalf("expected 50 jobs, got %d", len(q.normalJobs))
 	}
 }

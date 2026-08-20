@@ -25,8 +25,21 @@ const maxAttempts = 5
 // mutex held (found this out the hard way with -race, see
 // queue_test.go).
 type Queue struct {
-	mu            sync.Mutex
-	jobs          []*job.Job
+	mu sync.Mutex
+
+	// three separate buckets instead of one queue, so high priority
+	// jobs can jump ahead of normal/low ones.
+	highJobs   []*job.Job
+	normalJobs []*job.Job
+	lowJobs    []*job.Job
+
+	// counts how many times Dequeue has been called, used to
+	// occasionally let low priority jobs through even when there's
+	// always something higher priority waiting (otherwise low
+	// priority jobs could get stuck behind a steady stream of high
+	// priority ones and never run - starvation)
+	dequeueCount int
+
 	inFlight      map[string]*job.Job
 	leaseDeadline map[string]time.Time
 	dlq           []*job.Job
@@ -36,7 +49,6 @@ type Queue struct {
 
 func New() *Queue {
 	return &Queue{
-		jobs:          make([]*job.Job, 0),
 		inFlight:      make(map[string]*job.Job),
 		leaseDeadline: make(map[string]time.Time),
 		nextID:        1,
@@ -85,7 +97,7 @@ func (q *Queue) replay(events []wal.Event) {
 	for _, id := range order {
 		j, ok := pending[id]
 		if ok {
-			q.jobs = append(q.jobs, j)
+			q.pushToBucket(j)
 		}
 	}
 
@@ -100,14 +112,21 @@ func (q *Queue) replay(events []wal.Event) {
 	}
 }
 
-// Enqueue adds a new job with the given payload and returns it.
-func (q *Queue) Enqueue(payload string) *job.Job {
+// Enqueue adds a new job with the given payload/priority and returns
+// it. priority should be one of job.PriorityHigh/Normal/Low - falls
+// back to normal if it's anything else.
+func (q *Queue) Enqueue(payload string, priority string) *job.Job {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+
+	if priority != job.PriorityHigh && priority != job.PriorityNormal && priority != job.PriorityLow {
+		priority = job.PriorityNormal
+	}
 
 	j := &job.Job{
 		ID:        fmt.Sprintf("job-%d", q.nextID),
 		Payload:   payload,
+		Priority:  priority,
 		CreatedAt: time.Now(),
 	}
 	q.nextID++
@@ -122,22 +141,66 @@ func (q *Queue) Enqueue(payload string) *job.Job {
 		}
 	}
 
-	q.jobs = append(q.jobs, j)
+	q.pushToBucket(j)
 	return j
 }
 
-// Dequeue pops the oldest job off the queue and marks it in-flight
-// until it gets acked.
+// pushToBucket puts a job in the right priority slice. caller must
+// hold the lock.
+func (q *Queue) pushToBucket(j *job.Job) {
+	switch j.Priority {
+	case job.PriorityHigh:
+		q.highJobs = append(q.highJobs, j)
+	case job.PriorityLow:
+		q.lowJobs = append(q.lowJobs, j)
+	default:
+		q.normalJobs = append(q.normalJobs, j)
+	}
+}
+
+// popNext picks the next job to hand out. Normally strict priority
+// order (high, then normal, then low), but every 5th call it checks
+// low priority first so those jobs don't starve forever if high
+// priority jobs keep coming in. caller must hold the lock.
+func (q *Queue) popNext() (*job.Job, bool) {
+	q.dequeueCount++
+
+	if q.dequeueCount%5 == 0 && len(q.lowJobs) > 0 {
+		j := q.lowJobs[0]
+		q.lowJobs = q.lowJobs[1:]
+		return j, true
+	}
+
+	if len(q.highJobs) > 0 {
+		j := q.highJobs[0]
+		q.highJobs = q.highJobs[1:]
+		return j, true
+	}
+	if len(q.normalJobs) > 0 {
+		j := q.normalJobs[0]
+		q.normalJobs = q.normalJobs[1:]
+		return j, true
+	}
+	if len(q.lowJobs) > 0 {
+		j := q.lowJobs[0]
+		q.lowJobs = q.lowJobs[1:]
+		return j, true
+	}
+
+	return nil, false
+}
+
+// Dequeue pops the next job off the queue (highest priority first)
+// and marks it in-flight until it gets acked.
 func (q *Queue) Dequeue() (*job.Job, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	if len(q.jobs) == 0 {
+	j, ok := q.popNext()
+	if !ok {
 		return nil, false
 	}
 
-	j := q.jobs[0]
-	q.jobs = q.jobs[1:]
 	j.Attempts++
 	q.inFlight[j.ID] = j
 	q.leaseDeadline[j.ID] = time.Now().Add(leaseTimeout)
@@ -218,7 +281,7 @@ func (q *Queue) CheckTimeouts() {
 func (q *Queue) requeue(j *job.Job) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.jobs = append(q.jobs, j)
+	q.pushToBucket(j)
 }
 
 // DLQ returns everything that's given up retrying. Note this is

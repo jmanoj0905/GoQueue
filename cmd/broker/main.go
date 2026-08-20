@@ -52,7 +52,8 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type enqueueRequest struct {
-	Payload string `json:"payload"`
+	Payload  string `json:"payload"`
+	Priority string `json:"priority"` // "high", "normal", or "low" - defaults to normal
 }
 
 func enqueueHandler(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +64,7 @@ func enqueueHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	j := q.Enqueue(req.Payload)
+	j := q.Enqueue(req.Payload, req.Priority)
 	json.NewEncoder(w).Encode(j)
 }
 
