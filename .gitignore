@@ -1,0 +1,25 @@
+# docs are just my working notes, not part of the actual project
+docs/
+
+# agent/assistant files, not part of the project
+CLAUDE.md
+AGENTS.md
+.claude/
+
+# go build stuff
+/bin/
+*.exe
+*.test
+*.out
+
+# local data files (WAL, etc)
+*.log
+*.wal
+/data/
+
+# os junk
+.DS_Store
+
+# editor
+.vscode/
+.idea/
