@@ -5,13 +5,24 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"goqueue/internal/queue"
 )
 
-var q = queue.New()
+var q *queue.Queue
 
 func main() {
+	err := os.MkdirAll("data", 0755)
+	if err != nil {
+		log.Fatal("failed to create data dir:", err)
+	}
+
+	q, err = queue.NewWithWAL("data/wal.log")
+	if err != nil {
+		log.Fatal("failed to start queue:", err)
+	}
+
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/enqueue", enqueueHandler)
 	http.HandleFunc("/dequeue", dequeueHandler)
@@ -19,7 +30,7 @@ func main() {
 
 	port := ":8080"
 	fmt.Println("broker starting on", port)
-	err := http.ListenAndServe(port, nil)
+	err = http.ListenAndServe(port, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
