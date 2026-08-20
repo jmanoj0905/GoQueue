@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"goqueue/internal/queue"
 )
@@ -23,10 +24,20 @@ func main() {
 		log.Fatal("failed to start queue:", err)
 	}
 
+	// background goroutine that checks for jobs whose worker never
+	// acked in time, so they can get retried or dead-lettered
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		for range ticker.C {
+			q.CheckTimeouts()
+		}
+	}()
+
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/enqueue", enqueueHandler)
 	http.HandleFunc("/dequeue", dequeueHandler)
 	http.HandleFunc("/ack", ackHandler)
+	http.HandleFunc("/dlq", dlqHandler)
 
 	port := ":8080"
 	fmt.Println("broker starting on", port)
@@ -85,4 +96,8 @@ func ackHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintln(w, "acked")
+}
+
+func dlqHandler(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(q.DLQ())
 }

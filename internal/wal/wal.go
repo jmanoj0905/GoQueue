@@ -19,6 +19,7 @@ type EventType string
 const (
 	EventEnqueue EventType = "enqueue"
 	EventAck     EventType = "ack"
+	EventDLQ     EventType = "dlq" // job gave up retrying, moved to dead-letter queue
 )
 
 // Event is one line in the log file.

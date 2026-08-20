@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -28,6 +29,15 @@ func main() {
 		}
 
 		doWork(j)
+
+		// payloads with "faildemo" in them are for testing retries -
+		// pretend the worker crashed and never ack, so the broker
+		// times it out and retries it. everything else acks normally.
+		if strings.Contains(j.Payload, "faildemo") {
+			fmt.Printf("(faildemo) not acking %s on purpose\n", j.ID)
+			continue
+		}
+
 		ack(j.ID)
 	}
 }
