@@ -1,7 +1,8 @@
 # GoQueue
 
-A small distributed task queue, written in Go, mostly as a way to actually
-learn how these things work instead of just using one.
+A small distributed task queue written in Go - durable job queue with
+retries, priorities, and primary/standby failover. Built to actually learn
+how these things work instead of just using one.
 
 ## What is this
 
@@ -14,12 +15,6 @@ can take over if the primary goes down.
 
 More detail (and the reasoning behind the decisions) is in my design notes,
 kept locally, not part of this repo.
-
-## Status
-
-Core features are all in: durable queue, retries + DLQ, priorities,
-metrics, primary/standby failover. Still rough around the edges in
-places - see "known limitations" below.
 
 ## Running it
 
